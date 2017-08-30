@@ -12,7 +12,7 @@ import pickle
 import torch.optim as optim
 
 parser = argparse.ArgumentParser(description='PyTorch PennTreeBank RNN/LSTM Language Model')
-parser.add_argument('--data', type=str, default='./data/penn',
+parser.add_argument('--data', type=str, default='./data/sms',
                     help='location of the data corpus')
 parser.add_argument('--emsize', type=int, default=300,
                     help='size of word embeddings')
@@ -150,7 +150,7 @@ if __name__ == '__main__':
             torch.cuda.manual_seed(args.seed)
 
     corpus_path = args.data + '/'
-    dictionary = Dictionary(corpus_path + 'vocab.txt')
+    dictionary = Dictionary(corpus_path + 'vocab.cut3000.txt')
 
     eval_batch_size = 10
 

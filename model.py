@@ -55,6 +55,10 @@ class RNNModel(nn.Module):
         data = [output] + data[1:]
         return self.decoder.forward_with_loss(*data)
 
+    def forward_all(self, data, length):
+        output = self(data, length)
+        return self.decoder.forward_all(output, length)
+
 class Decoder(nn.Module):
     def __init__(self, nhid, ntoken):
         super(Decoder, self).__init__()
@@ -70,7 +74,11 @@ class Decoder(nn.Module):
     def forward(self, input):
         return self.decoder(input)
 
-    def forward_all(self, input):
+    def forward_all(self, input, length):
+        mask = length2mask(length)
+        input = input.masked_select(
+            mask.unsqueeze(dim=2).expand_as(input)
+        )
         input = input.view(-1, self.nhid)
         return self(input)
 

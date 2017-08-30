@@ -5,6 +5,7 @@ from tree.gauss_tree import GaussClassTree
 from collections import defaultdict
 import pdb
 import numpy as np
+import codecs
 
 
 UNK = '<unk>'
@@ -20,9 +21,9 @@ class Dictionary(object):
         self.add_word(PAD)
         self.add_word(BOS)
         self.add_word(EOS)
-        with open(vocab_path) as f:
+        with codecs.open(vocab_path, 'r', 'utf8') as f:
             for line in f:
-                self.add_word(line.strip())
+                self.add_word(line.strip().split()[0])
 
     def add_word(self, word):
         if word not in self.word2idx:
@@ -61,9 +62,10 @@ class DataIter(object):
 
     def build_data(self):
         self.lines = []
-        with open(self.corpus_path, 'r') as f:
+        with codecs.open(self.corpus_path, 'r', 'utf8') as f:
             for line in f:
-                self.lines.append([BOS] + line.strip().split(' ') + [EOS])
+                words = map(lambda x: x.split('/')[0], line.strip().split())
+                self.lines.append([BOS] + words + [EOS])
 
     def __iter__(self):
 
@@ -87,7 +89,7 @@ class DataIter(object):
 
 
 if __name__ == '__main__':
-    data_path = './data/penn/'
+    data_path = './data/sms/'
     np.random.seed(1)
 
     dictionary = Dictionary(data_path + 'vocab.txt')
