@@ -23,7 +23,7 @@ class Dictionary(object):
         self.add_word(EOS)
         with codecs.open(vocab_path, 'r', 'utf8') as f:
             for line in f:
-                self.add_word(line.strip().split()[0])
+                self.add_word(line.strip().split('\t')[0])
 
     def add_word(self, word):
         if word not in self.word2idx:
@@ -64,7 +64,7 @@ class DataIter(object):
         self.lines = []
         with codecs.open(self.corpus_path, 'r', 'utf8') as f:
             for line in f:
-                words = map(lambda x: x.split('/')[0], line.strip().split())
+                words = line.strip().split()
                 self.lines.append([BOS] + words + [EOS])
 
     def __iter__(self):

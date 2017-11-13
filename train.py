@@ -42,6 +42,7 @@ parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                     help='report interval')
 parser.add_argument('--save', type=str,  default='params/tmp/model.pt',
                     help='path to save the final model')
+parser.add_argument('--cont', action='store_true')
 args = parser.parse_args()
 
 print '{:=^30}'.format('all args')
@@ -99,6 +100,10 @@ class Trainer(object):
         lr = args.lr
         best_val_loss = None
 
+        if args.cont:
+            with open(args.save, 'rb') as f:
+                self.model = torch.load(f)
+
         # At any point you can hit Ctrl + C to break out of training early.
         try:
             for epoch in range(1, self.max_epochs+1):
@@ -118,6 +123,9 @@ class Trainer(object):
                     with open(args.save, 'rb') as f:
                         self.model = torch.load(f)
                     lr /= 4.0
+
+                    if lr < 0.16:
+                        break
 
         except KeyboardInterrupt:
             print('-' * 89)
@@ -150,7 +158,9 @@ if __name__ == '__main__':
             torch.cuda.manual_seed(args.seed)
 
     corpus_path = args.data + '/'
-    dictionary = Dictionary(corpus_path + 'vocab.cut3000.txt')
+    dictionary = Dictionary(corpus_path + 'vocab.txt')
+    #dictionary = Dictionary(corpus_path + 'vocab.cut6000.txt')
+    #dictionary = Dictionary(corpus_path + 'all.vocab.txt')
 
     eval_batch_size = 10
 
