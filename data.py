@@ -1,7 +1,6 @@
 import os
 import torch
 from torch.autograd import Variable
-from tree.gauss_tree import GaussClassTree
 from collections import defaultdict
 import pdb
 import numpy as np
@@ -38,10 +37,10 @@ class Dictionary(object):
         return len(self.idx2word)
 
     def indices2sent(self, indices):
-        return map(self.idx2word.__getitem__, indices)
+        return list(map(self.idx2word.__getitem__, indices))
 
     def sent2indices(self, sent):
-        return map(self.__getitem__, sent)
+        return list(map(self.__getitem__, sent))
 
 def map_dict_value(func, d):
     for k in d:
@@ -75,21 +74,21 @@ class DataIter(object):
         for idx in range(len(self)):
             lines = self.lines[idx * self.batch_size: (idx+1) * self.batch_size]
             lines.sort(key=lambda x: len(x), reverse=True)
-            length = map(len, lines)
+            length = list(map(len, lines))
             max_len = length[0]
             data = torch.LongTensor(len(lines), max_len).fill_(self.pad)
             for i, l in enumerate(lines):
                 data[i][:len(l)] = torch.LongTensor(self.dictionary.sent2indices(l))
             data = wrapper(data)
 
-            yield [data[:, :-1], data[:, 1:], map(lambda x: x-1, length)]
+            yield [data[:, :-1], data[:, 1:], list(map(lambda x: x-1, length))]
 
     def __len__(self):
         return len(self.lines) // self.batch_size
 
 
 if __name__ == '__main__':
-    data_path = './data/sms/'
+    data_path = './data/penn/'
     np.random.seed(1)
 
     dictionary = Dictionary(data_path + 'vocab.txt')

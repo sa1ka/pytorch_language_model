@@ -1,6 +1,7 @@
 *.pyc
 log*
-data/*
+data
 submit.sh
 params/*
 *.pk
+__pycache__/*
