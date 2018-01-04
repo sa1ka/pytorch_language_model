@@ -5,3 +5,4 @@ submit.sh
 params/*
 *.pk
 __pycache__/*
+*log

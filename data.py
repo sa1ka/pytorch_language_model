@@ -5,7 +5,7 @@ from collections import defaultdict
 import pdb
 import numpy as np
 import codecs
-
+import utils
 
 UNK = '<unk>'
 PAD = '<pad>'
@@ -16,18 +16,23 @@ class Dictionary(object):
     def __init__(self, vocab_path):
         self.word2idx = {}
         self.idx2word = []
+        self.word2cls = []
+        self.cls_set = set()
         self.add_word(UNK)
         self.add_word(PAD)
         self.add_word(BOS)
         self.add_word(EOS)
         with codecs.open(vocab_path, 'r', 'utf8') as f:
             for line in f:
-                self.add_word(line.strip().split('\t')[0])
+                self.add_word(*line.strip().split())
+        self.ncls = len(self.cls_set)
 
-    def add_word(self, word):
+    def add_word(self, word, cls=0):
         if word not in self.word2idx:
             self.idx2word.append(word)
             self.word2idx[word] = len(self.idx2word) - 1
+            self.word2cls.append(int(cls))
+            self.cls_set.add(int(cls))
         return self.word2idx[word]
 
     def __getitem__(self, key):
@@ -41,10 +46,6 @@ class Dictionary(object):
 
     def sent2indices(self, sent):
         return list(map(self.__getitem__, sent))
-
-def map_dict_value(func, d):
-    for k in d:
-        d[k] = func(d[k])
 
 class DataIter(object):
     def __init__(self, corpus_path, batch_size, dictionary, cuda=False):

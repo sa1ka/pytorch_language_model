@@ -1,19 +1,18 @@
 import argparse
+import sys
 import time
 import math
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-import torch.optim
-
-from data import Dictionary, DataIter
 import model
 import pickle
 import torch.optim as optim
+from torch.autograd import Variable, profiler
+from data import Dictionary, DataIter
 
 def arg_parse():
 
-    parser = argparse.ArgumentParser(description='PyTorch PennTreeBank RNN/LSTM Language Model')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--data', type=str, default='./data/penn',
                         help='location of the data corpus')
     parser.add_argument('--emsize', type=int, default=300,
@@ -28,10 +27,8 @@ def arg_parse():
                         help='gradient clipping')
     parser.add_argument('--epochs', type=int, default=50,
                         help='upper epoch limit')
-    parser.add_argument('--batch_size', type=int, default=20, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                         help='batch size')
-    parser.add_argument('--bptt', type=int, default=20,
-                        help='sequence length')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout applied to layers (0 = no dropout)')
     parser.add_argument('--tied', action='store_true',
@@ -45,6 +42,7 @@ def arg_parse():
     parser.add_argument('--save', type=str,  default='params/tmp/model.pt',
                         help='path to save the final model')
     parser.add_argument('--cont', action='store_true')
+    parser.add_argument('--cls', action='store_true')
     args = parser.parse_args()
 
     print('{:=^30}'.format('all args'))
@@ -97,6 +95,8 @@ class Trainer(object):
                     elapsed * 1000 / self.args.log_interval, cur_loss, math.exp(cur_loss)))
                 total_loss = 0
                 start_time = time.time()
+
+            sys.stdout.flush()
 
     def train(self):
         # Loop over epochs.
@@ -162,7 +162,7 @@ if __name__ == '__main__':
             torch.cuda.manual_seed(args.seed)
 
     corpus_path = args.data + '/'
-    dictionary = Dictionary(corpus_path + 'vocab.txt')
+    dictionary = Dictionary(corpus_path + 'vocab.c.txt')
 
     eval_batch_size = 10
 
@@ -195,6 +195,9 @@ if __name__ == '__main__':
         ntoken = ntokens,
         ninp = args.emsize,
         nhid = args.nhid,
+        ncls = dictionary.ncls,
+        word2cls = dictionary.word2cls,
+        cls_based = args.cls,
         nlayers = args.nlayers,
         dropout = args.dropout,
     )
