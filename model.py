@@ -18,7 +18,7 @@ class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
     def __init__(self, ntoken, ninp, nhid, nlayers,
-                 cls_based=False, ncls=None, word2cls=None,
+                 cls_based=False, ncls=None, word2cls=None, class_chunks=None,
                  dropout=0.5):
         super(RNNModel, self).__init__()
         self.ntoken = ntoken
@@ -27,7 +27,7 @@ class RNNModel(nn.Module):
         self.rnn = nn.LSTM(ninp, nhid, nlayers, dropout=dropout, batch_first=True)
 
         if cls_based:
-            self.decoder = ClassBasedDecoder(nhid, ntoken, ncls, word2cls)
+            self.decoder = ClassBasedDecoder(nhid, ntoken, ncls, word2cls, class_chunks)
         else:
             self.decoder = Decoder(nhid, ntoken)
 
@@ -43,11 +43,7 @@ class RNNModel(nn.Module):
 
     def forward(self, input, length=None):
         emb = self.drop(self.encoder(input))
-        if length is not None:
-            emb = pack_padded_sequence(emb, length, batch_first=True)
         output, hidden = self.rnn(emb)
-        if isinstance(output, PackedSequence):
-            output, _  = pad_packed_sequence(output, batch_first=True)
         output = self.drop(output)
         return output
 
@@ -116,12 +112,15 @@ class ListModule(nn.Module):
         return len(self._modules)
 
 class ClassBasedDecoder(nn.Module):
-    def __init__(self, nhid, nwords, ncls, word2cls):
+    def __init__(self, nhid, nwords, ncls, word2cls, class_chunks):
         super(ClassBasedDecoder, self).__init__()
         self.nhid = nhid
         self.cls_decoder = nn.Linear(nhid, ncls)
-        self.words_decoder = nn.Embedding(nwords, nhid)
-        self.words_bias = nn.Embedding(nwords, 1)
+
+        words_decoders = []
+        for c in class_chunks:
+            words_decoders.append(nn.Linear(nhid, c))
+        self.words_decoders = ListModule(*words_decoders)
 
         self.CELoss = nn.CrossEntropyLoss(size_average=False)
 
@@ -142,8 +141,9 @@ class ClassBasedDecoder(nn.Module):
         r = .1
         self.cls_decoder.weight.data.uniform_(-r, r)
         self.cls_decoder.bias.data.fill_(0)
-        self.words_decoder.weight.data.uniform_(-r, r)
-        self.words_bias.weight.data.fill_(0)
+        for word_decoder in self.words_decoders:
+            word_decoder.weight.data.uniform_(-r, r)
+            word_decoder.bias.data.fill_(0)
 
     def build_labels(self, target):
         # too much time is wasted in this function
@@ -175,13 +175,8 @@ class ClassBasedDecoder(nn.Module):
         p_words = {}
 
         for c in within_batch_idx:
-            out_embed = self.words_decoder(self.cls_cluster[c])
-            out_bias = self.words_bias(self.cls_cluster[c])
-
             d = input.index_select(0, within_batch_idx[c])
-            dot_value = torch.mm(d, out_embed.t())
-            dot_value = dot_value + out_bias.t().expand_as(dot_value)
-            p_words[c] = dot_value
+            p_words[c] = self.words_decoders[c](d)
 
         return p_class, p_words
 

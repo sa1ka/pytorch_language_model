@@ -47,6 +47,21 @@ class Dictionary(object):
     def sent2indices(self, sent):
         return list(map(self.__getitem__, sent))
 
+    def get_class_chunks(self):
+        def ascent_check(nums):
+            for i in range(1, len(nums)):
+                if nums[i] < nums[i-1]:
+                    return False
+            return True
+        assert(ascent_check(self.word2cls))
+        cls_chunk_size = 1
+        for i in range(1, len(self.word2cls)):
+            if self.word2cls[i] != self.word2cls[i-1]:
+                yield cls_chunk_size
+                cls_chunk_size = 0
+            cls_chunk_size += 1
+        yield cls_chunk_size
+
 class DataIter(object):
     def __init__(self, corpus_path, batch_size, dictionary, cuda=False):
         self.corpus_path = corpus_path
@@ -92,7 +107,7 @@ if __name__ == '__main__':
     data_path = './data/penn/'
     np.random.seed(1)
 
-    dictionary = Dictionary(data_path + 'vocab.txt')
+    dictionary = Dictionary(data_path + 'vocab.c.txt')
     batch_size = 20
     cuda = False
     train_iter = DataIter(
@@ -101,5 +116,7 @@ if __name__ == '__main__':
         dictionary = dictionary,
         cuda = cuda,
     )
-    for d in train_iter:
-        break
+    chunks = list(dictionary.get_class_chunks())
+    pdb.set_trace()
+    #for d in train_iter:
+    #    break

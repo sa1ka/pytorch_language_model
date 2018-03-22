@@ -199,6 +199,7 @@ if __name__ == '__main__':
         word2cls = dictionary.word2cls,
         cls_based = args.cls,
         nlayers = args.nlayers,
+        class_chunks = list(dictionary.get_class_chunks()),
         dropout = args.dropout,
     )
 
