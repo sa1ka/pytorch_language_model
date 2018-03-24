@@ -82,6 +82,14 @@ class DataIter(object):
                 words = line.strip().split()
                 self.lines.append([BOS] + words + [EOS])
 
+    def get_unigram_dist(self):
+        dist = [0] * len(self.dictionary)
+        for l in self.lines:
+            # skip BOS
+            for w in l[1:]:
+                dist[self.dictionary[w]] += 1
+        return torch.Tensor(dist)
+
     def __iter__(self):
 
         def wrapper(d):

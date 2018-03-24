@@ -42,7 +42,7 @@ def arg_parse():
     parser.add_argument('--save', type=str,  default='params/tmp/model.pt',
                         help='path to save the final model')
     parser.add_argument('--cont', action='store_true')
-    parser.add_argument('--cls', action='store_true')
+    parser.add_argument('--decoder', type=str, default='sm')
     args = parser.parse_args()
 
     print('{:=^30}'.format('all args'))
@@ -197,9 +197,10 @@ if __name__ == '__main__':
         nhid = args.nhid,
         ncls = dictionary.ncls,
         word2cls = dictionary.word2cls,
-        cls_based = args.cls,
+        decoder = args.decoder,
         nlayers = args.nlayers,
         class_chunks = list(dictionary.get_class_chunks()),
+        noise_dist = train_iter.get_unigram_dist(),
         dropout = args.dropout,
     )
 

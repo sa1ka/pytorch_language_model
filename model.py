@@ -4,7 +4,6 @@
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
-from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 from torch.autograd import Variable
 
 import pickle
@@ -13,12 +12,13 @@ import pdb
 from collections import defaultdict
 from data import DataIter, Dictionary
 from utils import list2longtensor, length2mask, map_dict_value
+from alias_multinomial import AliasMethod
 
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
     def __init__(self, ntoken, ninp, nhid, nlayers,
-                 cls_based=False, ncls=None, word2cls=None, class_chunks=None,
+                 decoder='sm', ncls=None, word2cls=None, class_chunks=None, noise_dist=None,
                  dropout=0.5):
         super(RNNModel, self).__init__()
         self.ntoken = ntoken
@@ -26,10 +26,12 @@ class RNNModel(nn.Module):
         self.encoder = nn.Embedding(ntoken, ninp)
         self.rnn = nn.LSTM(ninp, nhid, nlayers, dropout=dropout, batch_first=True)
 
-        if cls_based:
-            self.decoder = ClassBasedDecoder(nhid, ntoken, ncls, word2cls, class_chunks)
-        else:
+        if decoder == 'sm':
             self.decoder = Decoder(nhid, ntoken)
+        elif decoder == 'cls':
+            self.decoder = ClassBasedDecoder(nhid, ntoken, ncls, word2cls, class_chunks)
+        elif decoder == 'nce':
+            self.decoder = NCEDecoder(nhid, ntoken, noise_dist)
 
         self.init_weights()
 
@@ -51,7 +53,10 @@ class RNNModel(nn.Module):
         input, target, length = data
         output = self(input, length)
         data = [output] + data[1:]
-        return self.decoder.forward_with_loss(*data)
+
+        decoder_loss = self.decoder.forward_with_loss(*data)
+
+        return decoder_loss
 
     def forward_all(self, data, length):
         output = self(data, length)
@@ -87,6 +92,7 @@ class Decoder(nn.Module):
         )
         output = self(input.view(-1, self.nhid))
         target = target.masked_select(mask)
+
         return self.criterion(output, target)
 
 class ListModule(nn.Module):
@@ -204,5 +210,76 @@ class ClassBasedDecoder(nn.Module):
         return (closs + sum(wloss)) / len(cls_idx)
 
 
+class NCEDecoder(nn.Module):
+    def __init__(self, nhid, ntoken, noise_dist, nsample=10):
+        super(NCEDecoder, self).__init__()
+        self.nhid = nhid
+        self.word_embeddings = nn.Embedding(ntoken, nhid)
+        self.word_bias = nn.Embedding(ntoken, 1)
 
+        noise_dist = noise_dist / noise_dist.sum()
+        self.noise_dist = noise_dist.cuda()
+        self.alias = AliasMethod(self.noise_dist)
+        self.nsample = nsample
+        self.norm = 9
 
+        self.CE = nn.CrossEntropyLoss()
+        self.valid = False
+
+    def init_weights(self):
+        initrange = 0.1
+        self.word_embeddings.weight.data.uniform_(-initrange, initrange)
+        self.word_bias.weight.data.fill_(0)
+
+    def _get_noise_prob(self, indices):
+        return Variable(self.noise_dist[indices.data.view(-1)].view_as(indices))
+
+    def forward(self, input, target):
+        #model prob for target and sample words
+
+        sample = Variable(self.alias.draw(input.size(0), self.nsample).cuda())
+        indices = torch.cat([target.unsqueeze(1), sample], dim=1)
+
+        embed = self.word_embeddings(indices)
+        bias = self.word_bias(indices)
+
+        score = torch.baddbmm(1, bias, 1, embed, input.unsqueeze(2)).squeeze()
+        score = score.sub(self.norm).exp()
+        target_prob, sample_prob = score[:, 0], score[:, 1:]
+
+        return target_prob, sample_prob, sample
+
+    def nce_loss(self, target_prob, sample_prob, target, sample):
+        target_noise_prob = self._get_noise_prob(target)
+        sample_noise_prob = self._get_noise_prob(sample)
+
+        def log(tensor):
+            EPSILON = 1e-10
+            return torch.log(EPSILON + tensor)
+
+        target_loss = log(
+            target_prob / (target_prob + self.nsample * target_noise_prob)
+        )
+
+        sample_loss = log(
+            self.nsample * sample_noise_prob / (sample_prob + self.nsample * sample_noise_prob)
+        )
+
+        return - (target_loss + torch.sum(sample_loss, -1).squeeze())
+
+    def forward_with_loss(self, input, target, length):
+        mask = length2mask(length)
+        input = input.masked_select(
+            mask.unsqueeze(dim=2).expand_as(input)
+        ).view(-1, self.nhid)
+        target = target.masked_select(mask)
+
+        if self.training:
+            target_prob, sample_prob, sample = self(input, target)
+            loss = self.nce_loss(target_prob, sample_prob, target, sample)
+            return loss.mean()
+        else:
+            output = torch.addmm(
+                1, self.word_bias.weight.view(-1), 1, input, self.word_embeddings.weight.t()
+            )
+            return self.CE(output, target)
