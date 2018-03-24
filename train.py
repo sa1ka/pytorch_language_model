@@ -9,6 +9,7 @@ import pickle
 import torch.optim as optim
 from torch.autograd import Variable, profiler
 from data import Dictionary, DataIter
+from decoder import SMDecoder, ClassBasedSMDecoder, NCEDecoder
 
 def arg_parse():
 
@@ -43,6 +44,7 @@ def arg_parse():
                         help='path to save the final model')
     parser.add_argument('--cont', action='store_true')
     parser.add_argument('--decoder', type=str, default='sm')
+    parser.add_argument('--nce_nsample', type=int, default=10)
     args = parser.parse_args()
 
     print('{:=^30}'.format('all args'))
@@ -56,14 +58,13 @@ def arg_parse():
 ###############################################################################
 
 class Trainer(object):
-    def __init__(self, model, ntokens, args,
+    def __init__(self, model, args,
                  train_iter, valid_iter, test_iter=None,
                  max_epochs=50,):
         self.model = model
         self.train_iter = train_iter
         self.valid_iter = valid_iter
         self.test_iter = test_iter
-        self.ntokens = ntokens
         self.max_epochs = max_epochs
         self.args = args
 
@@ -189,18 +190,34 @@ if __name__ == '__main__':
     # Build the model
     ###############################################################################
 
-    ntokens = len(dictionary)
+    ntoken = len(dictionary)
+
+    if args.decoder == 'sm':
+        decoder = SMDecoder(
+            nhid = args.nhid,
+            ntoken = ntoken
+        )
+    elif args.decoder == 'cls':
+        decoder = ClassBasedSMDecoder(
+            nhid = args.nhid,
+            ncls = dictionary.ncls,
+            word2cls = dictionary.word2cls,
+            class_chunks = list(dictionary.get_class_chunks()),
+        )
+    elif args.decoder == 'nce':
+        decoder = NCEDecoder(
+            nhid = args.nhid,
+            ntoken = ntoken,
+            noise_dist = train_iter.get_unigram_dist(),
+            nsample = args.nce_nsample,
+        )
 
     model = model.RNNModel(
-        ntoken = ntokens,
+        ntoken = ntoken,
         ninp = args.emsize,
         nhid = args.nhid,
-        ncls = dictionary.ncls,
-        word2cls = dictionary.word2cls,
-        decoder = args.decoder,
         nlayers = args.nlayers,
-        class_chunks = list(dictionary.get_class_chunks()),
-        noise_dist = train_iter.get_unigram_dist(),
+        decoder = decoder,
         dropout = args.dropout,
     )
 
@@ -209,7 +226,6 @@ if __name__ == '__main__':
 
     trainer = Trainer(
         model = model,
-        ntokens = ntokens,
         train_iter = train_iter,
         valid_iter = valid_iter,
         test_iter = test_iter,
