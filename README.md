@@ -1,6 +1,10 @@
 # lstm_language_model
 
-a pytorch version lstm language model, support class-based softmax for speeding up (Following the [paper](https://arxiv.org/pdf/1602.01576.pdf)).
+a pytorch version lstm language model, support class-based softmax (Following the [paper](https://arxiv.org/pdf/1602.01576.pdf)) and NCE (noise contrasitve estimation, following the [paper](https://www.cs.toronto.edu/~amnih/papers/ncelm.pdf)], and thanks Stonesjtu's amazing [project](https://github.com/Stonesjtu/Pytorch-NCE)) for speeding up .
+
+## Theoretical Analysis
+
+### Class-based Softmax
 
 In class-based softmax, each word is assigned to one class, hence the probability of a word become:
 
@@ -10,9 +14,13 @@ Theoretically, the computational cost can be reduced from O(dk) to O(d\sqrt{k}),
 
 But in pratice, there are too many overhead (especially in GPU).
 
+### NCE
+
+NCE transfers the probability estimation problem into a binary classification problem. In NCE, we have a noise distributiona and our goal is to train a model to differentiate the target word from noise. The biggest trick in NCE is that, we treat the probability normalization term as a constant, which saves a lots of time for both training and testing.
+
 ## Usage 
 
-Run the following script the build a vocab with class:
+Before training the model, please run the following script to build a vocab with class:
 
 ```
 python build_vocab_with_class.py --ncls 30 --min_count 0
@@ -22,12 +30,8 @@ The vocab built above is based on the frequence, you can also build your own voc
 
 Run training script:
 ```
-python train.py --cuda --data [data_path] --cls
-```
-
-Or run the standard softmax model:
-```
-python train.py --cuda --data [data_path]
+python train.py --cuda --data [data_path] --decoder [sm|nce|cls]
 ```
 
 ## Performance
+
