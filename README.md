@@ -33,5 +33,15 @@ Run training script:
 python train.py --cuda --data [data_path] --decoder [sm|nce|cls]
 ```
 
+## File Structure
+ - `data/`: corpus dictionary
+ - `params/`: save the parameters
+ - `data.py`: custom data iter and dictionary
+ - `model.py`: the basic rnn model
+ - `decoder.py`: the decoder layers (softmax, class-based softmax and NCE)
+ - `train.py`: the training process
+ - `utils.py`: utilize functions
+
 ## Performance
+![experiments on swb (6W vocab)](./res/ppl.png)
 
