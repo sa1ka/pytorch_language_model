@@ -45,5 +45,13 @@ python train.py --cuda --data [data_path] --decoder [sm|nce|cls]
 ## Performance
 Experiments on swb corpus (6W vocab):
 
+epoch average training time:
+
+softmax: 1061s
+
+nce: 471s
+
+class-based softmax: 465s
+
 ![experiments on swb (6W vocab)](./res/ppl.png)
 
