@@ -1,13 +1,18 @@
-import argparse
+import os
 import sys
 import time
 import math
+import pickle
+import argparse
+from multiprocessing import Process
+
 import torch
 import torch.nn as nn
-import model
-import pickle
 import torch.optim as optim
+import torch.distributed as dist
 from torch.autograd import Variable, profiler
+
+from model import RNNModel
 from data import Dictionary, DataIter
 from decoder import SMDecoder, ClassBasedSMDecoder, NCEDecoder
 
@@ -45,6 +50,8 @@ def arg_parse():
     parser.add_argument('--cont', action='store_true')
     parser.add_argument('--decoder', type=str, default='sm')
     parser.add_argument('--nce_nsample', type=int, default=10)
+    parser.add_argument('--dist', action='store_true')
+    parser.add_argument('--world_size', type=int, default=0)
     args = parser.parse_args()
 
     print('{:=^30}'.format('all args'))
@@ -68,6 +75,9 @@ class Trainer(object):
         self.max_epochs = max_epochs
         self.args = args
 
+    def check_dist():
+        return not self.args.dist or dist.get_rank() == 0
+
     def __train(self, lr, epoch):
         self.model.train()
         total_loss = 0
@@ -87,15 +97,16 @@ class Trainer(object):
 
             total_loss += loss.data
 
-            if batch % self.args.log_interval == 0 and batch > 0:
-                cur_loss = total_loss[0] / self.args.log_interval
-                elapsed = time.time() - start_time
-                print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
-                        'loss {:5.2f} | ppl {:8.2f}'.format(
-                    epoch, batch, len(self.train_iter), lr,
-                    elapsed * 1000 / self.args.log_interval, cur_loss, math.exp(cur_loss)))
-                total_loss = 0
-                start_time = time.time()
+            if self.check_dist():
+                if batch % self.args.log_interval == 0 and batch > 0:
+                    cur_loss = total_loss[0] / self.args.log_interval
+                    elapsed = time.time() - start_time
+                    print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
+                            'loss {:5.2f} | ppl {:8.2f}'.format(
+                        epoch, batch, self.train_iter.nbatchs(), lr,
+                        elapsed * 1000 / self.args.log_interval, cur_loss, math.exp(cur_loss)))
+                    total_loss = 0
+                    start_time = time.time()
 
             sys.stdout.flush()
 
@@ -119,15 +130,13 @@ class Trainer(object):
                 print('-' * 89)
                 # Save the model if the validation loss is the best we've seen so far.
                 if not best_val_loss or val_loss < best_val_loss:
-                    with open(self.args.save, 'wb') as f:
-                        torch.save(self.model, f)
+                    if self.check_dist():
+                        with open(self.args.save, 'wb') as f:
+                            torch.save(self.model, f)
                     best_val_loss = val_loss
                 else:
                     # Anneal the learning rate if no improvement has been seen in the validation dataset.
-                    with open(self.args.save, 'rb') as f:
-                        self.model = torch.load(f)
                     lr /= 4.0
-
                     if lr < 0.01:
                         break
 
@@ -135,11 +144,12 @@ class Trainer(object):
             print('-' * 89)
             print('Exiting from training early')
 
-        # Load the best saved model.
-        with open(self.args.save, 'rb') as f:
-            self.model = torch.load(f)
-        if not self.test_iter is None:
-            self.evaluate(self.test_iter, 'test')
+        if self.check_dist():
+            # Load the best saved model.
+            with open(self.args.save, 'rb') as f:
+                self.model = torch.load(f)
+            if not self.test_iter is None:
+                self.evaluate(self.test_iter, 'test')
 
     def evaluate(self, data_source, prefix='valid'):
         # Turn on evaluation mode which disables dropout.
@@ -148,13 +158,13 @@ class Trainer(object):
         for data in data_source:
             loss = self.model.loss(data)
             total_loss +=  loss.data
-        ave_loss = total_loss[0] / len(data_source)
+        ave_loss = total_loss[0] / data_source.nbatchs()
         print('| {0} loss {1:5.2f} | {0} ppl {2:8.2f}'.format(prefix, ave_loss, math.exp(ave_loss)))
         return ave_loss
 
-if __name__ == '__main__':
+def main(args):
+    print(dist.get_rank())
     # Set the random seed manually for reproducibility.
-    args = arg_parse()
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         if not args.cuda:
@@ -172,6 +182,7 @@ if __name__ == '__main__':
         args.batch_size,
         dictionary = dictionary,
         cuda = args.cuda,
+        dist = args.dist,
     )
     valid_iter = DataIter(
         corpus_path + 'valid.txt',
@@ -212,7 +223,7 @@ if __name__ == '__main__':
             nsample = args.nce_nsample,
         )
 
-    model = model.RNNModel(
+    model = RNNModel(
         ntoken = ntoken,
         ninp = args.emsize,
         nhid = args.nhid,
@@ -224,6 +235,10 @@ if __name__ == '__main__':
     if args.cuda:
         model.cuda()
 
+    print(11111)
+    model = nn.parallel.DistributedDataParallel(model)
+    print(22222)
+
     trainer = Trainer(
         model = model,
         train_iter = train_iter,
@@ -234,3 +249,24 @@ if __name__ == '__main__':
     )
 
     trainer.train()
+
+def init_processes(args, rank, fn, backend='gloo'):
+    print(rank)
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(rank)
+    share_file = "file:///slfs1/users/rnc00/workspace/lstm_language_model/shared_file"
+    dist.init_process_group(backend, rank=rank, world_size=args.world_size, init_method=share_file)
+    main(args)
+
+if __name__ == '__main__':
+    args = arg_parse()
+    if args.dist:
+        processes = []
+        for rank in range(args.world_size):
+            p = Process(target=init_processes, args=(args, rank, main))
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+    else:
+        main(args)

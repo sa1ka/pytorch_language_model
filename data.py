@@ -2,6 +2,7 @@ import os
 import torch
 from torch.autograd import Variable
 from collections import defaultdict
+from torch.utils.data.distributed import DistributedSampler
 import pdb
 import numpy as np
 import codecs
@@ -63,17 +64,20 @@ class Dictionary(object):
         yield cls_chunk_size
 
 class DataIter(object):
-    def __init__(self, corpus_path, batch_size, dictionary, cuda=False):
+    def __init__(self, corpus_path, batch_size, dictionary, cuda=False, dist=False):
         self.corpus_path = corpus_path
         self.batch_size = batch_size
         self.dictionary = dictionary
         self.cuda = cuda
+        self.dist = dist
         self.bos = dictionary[BOS]
         self.eos = dictionary[EOS]
         self.pad = dictionary[PAD]
         self.unk = dictionary[UNK]
 
         self.build_data()
+        if dist:
+            self.sampler = DistributedSampler(self)
 
     def build_data(self):
         self.lines = []
@@ -94,9 +98,21 @@ class DataIter(object):
 
         def wrapper(d):
             return Variable(d.cuda()) if self.cuda else Variable(d)
+        if self.dist:
+            indices = self.sampler.__iter__()
+        else:
+            indices = range(len(self))
 
-        for idx in range(len(self)):
-            lines = self.lines[idx * self.batch_size: (idx+1) * self.batch_size]
+        idx = 0
+        def chunks(l, n):
+            for i in range(0, len(l), n):
+                yield l[i:i+n]
+
+        for batch in chunks(indices, self.batch_size):
+            lines = []
+            for idx in batch:
+                lines.append(self.lines[idx])
+
             lines.sort(key=lambda x: len(x), reverse=True)
             length = list(map(len, lines))
             max_len = length[0]
@@ -108,7 +124,13 @@ class DataIter(object):
             yield [data[:, :-1], data[:, 1:], list(map(lambda x: x-1, length))]
 
     def __len__(self):
-        return len(self.lines) // self.batch_size
+        return len(self.lines)
+
+    def nbatchs(self):
+        if self.dist:
+            return len(self.sampler.num_samples) // self.batch_size
+        else:
+            return len(self) // self.batch_size
 
 
 if __name__ == '__main__':
