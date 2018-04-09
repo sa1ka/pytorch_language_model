@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributed as dist
-from torch.autograd import Variable, profiler
+from torch.autograd import Variable
 
 from model import RNNModel
 from data import Dictionary, DataIter
@@ -19,7 +19,7 @@ from decoder import SMDecoder, ClassBasedSMDecoder, NCEDecoder
 def arg_parse():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', type=str, default='./data/penn',
+    parser.add_argument('--data', type=str, default='./data/ptb',
                         help='location of the data corpus')
     parser.add_argument('--emsize', type=int, default=300,
                         help='size of word embeddings')
@@ -47,11 +47,14 @@ def arg_parse():
                         help='report interval')
     parser.add_argument('--save', type=str,  default='params/tmp/model.pt',
                         help='path to save the final model')
-    parser.add_argument('--cont', action='store_true')
-    parser.add_argument('--decoder', type=str, default='sm')
+    parser.add_argument('--cont', action='store_true',
+                        help='if continue with the pretrained model')
+    parser.add_argument('--decoder', type=str, default='sm',)
     parser.add_argument('--nce_nsample', type=int, default=10)
+
     parser.add_argument('--dist', action='store_true')
     parser.add_argument('--world_size', type=int, default=0)
+    parser.add_argument('--devices', type=int, nargs='*')
     args = parser.parse_args()
 
     print('{:=^30}'.format('all args'))
@@ -75,7 +78,7 @@ class Trainer(object):
         self.max_epochs = max_epochs
         self.args = args
 
-    def check_dist():
+    def check_dist(self):
         return not self.args.dist or dist.get_rank() == 0
 
     def __train(self, lr, epoch):
@@ -88,7 +91,7 @@ class Trainer(object):
             # If we didn't, the model would try backpropagating all the way to start of the dataset.
             optim.zero_grad()
 
-            loss = self.model.loss(data)
+            loss = self.model(data)
             loss.backward()
 
             # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
@@ -125,14 +128,15 @@ class Trainer(object):
                 epoch_start_time = time.time()
                 self.__train(lr, epoch)
                 val_loss = self.evaluate(self.valid_iter)
-                print('-' * 89)
-                print('| end of epoch {:3d} | time: {:5.2f}s '.format(epoch, (time.time() - epoch_start_time),))
-                print('-' * 89)
+                if self.check_dist():
+                    print('-' * 89)
+                    print('| end of epoch {:3d} | time: {:5.2f}s '.format(epoch, (time.time() - epoch_start_time),))
+                    print('-' * 89)
                 # Save the model if the validation loss is the best we've seen so far.
                 if not best_val_loss or val_loss < best_val_loss:
                     if self.check_dist():
                         with open(self.args.save, 'wb') as f:
-                            torch.save(self.model, f)
+                            torch.save(self.model.module, f) if self.args.dist else torch.save(self.model, f)
                     best_val_loss = val_loss
                 else:
                     # Anneal the learning rate if no improvement has been seen in the validation dataset.
@@ -147,7 +151,10 @@ class Trainer(object):
         if self.check_dist():
             # Load the best saved model.
             with open(self.args.save, 'rb') as f:
-                self.model = torch.load(f)
+                if self.args.dist:
+                    self.model.module = torch.load(f)
+                else:
+                    self.model = torch.load(f)
             if not self.test_iter is None:
                 self.evaluate(self.test_iter, 'test')
 
@@ -156,14 +163,13 @@ class Trainer(object):
         self.model.eval()
         total_loss = 0
         for data in data_source:
-            loss = self.model.loss(data)
+            loss = self.model(data)
             total_loss +=  loss.data
         ave_loss = total_loss[0] / data_source.nbatchs()
         print('| {0} loss {1:5.2f} | {0} ppl {2:8.2f}'.format(prefix, ave_loss, math.exp(ave_loss)))
         return ave_loss
 
 def main(args):
-    print(dist.get_rank())
     # Set the random seed manually for reproducibility.
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
@@ -235,9 +241,8 @@ def main(args):
     if args.cuda:
         model.cuda()
 
-    print(11111)
-    model = nn.parallel.DistributedDataParallel(model)
-    print(22222)
+    if args.dist:
+        model = nn.parallel.DistributedDataParallel(model)
 
     trainer = Trainer(
         model = model,
@@ -250,19 +255,23 @@ def main(args):
 
     trainer.train()
 
-def init_processes(args, rank, fn, backend='gloo'):
-    print(rank)
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(rank)
-    share_file = "file:///slfs1/users/rnc00/workspace/lstm_language_model/shared_file"
+def init_processes(args, rank, device, fn, backend='gloo'):
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(device)
+    share_file = "file:///mnt/lustre/sjtu/users/rnc00/workspace/pytorch_lm/shared_file"
     dist.init_process_group(backend, rank=rank, world_size=args.world_size, init_method=share_file)
     main(args)
 
 if __name__ == '__main__':
     args = arg_parse()
     if args.dist:
+        if args.devices is not None:
+            assert(len(args.devices) == args.world_size)
+        else:
+            args.devices = list(range(args.world_size))
+
         processes = []
         for rank in range(args.world_size):
-            p = Process(target=init_processes, args=(args, rank, main))
+            p = Process(target=init_processes, args=(args, rank, args.devices[rank], main))
             p.start()
             processes.append(p)
 

@@ -32,17 +32,17 @@ class RNNModel(nn.Module):
         self.encoder.weight.data.uniform_(-initrange, initrange)
         self.decoder.init_weights()
 
-    def forward(self, input, length=None):
+    def forward_rnn(self, input, length=None):
         emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb)
         output = self.drop(output)
         return output
 
-    def loss(self, data):
+    def forward(self, data):
 
         # forward rnn
         input, target, length = data
-        rnn_output = self(input, length)
+        rnn_output = self.forward_rnn(input, length)
 
         # discard the pad
         mask = length2mask(length)
@@ -55,8 +55,3 @@ class RNNModel(nn.Module):
         decoder_loss = self.decoder.forward_with_loss(rnn_output, target)
 
         return decoder_loss
-
-    def forward_all(self, data, length):
-        output = self(data, length)
-        return self.decoder.forward_all(output, length)
-

@@ -99,9 +99,9 @@ class DataIter(object):
         def wrapper(d):
             return Variable(d.cuda()) if self.cuda else Variable(d)
         if self.dist:
-            indices = self.sampler.__iter__()
+            indices = list(self.sampler.__iter__())
         else:
-            indices = range(len(self))
+            indices = list(range(len(self)))
 
         idx = 0
         def chunks(l, n):
@@ -128,7 +128,7 @@ class DataIter(object):
 
     def nbatchs(self):
         if self.dist:
-            return len(self.sampler.num_samples) // self.batch_size
+            return self.sampler.num_samples // self.batch_size
         else:
             return len(self) // self.batch_size
 
