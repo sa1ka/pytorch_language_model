@@ -88,7 +88,7 @@ class Trainer(object):
             total_loss += loss.data
 
             if batch % self.args.log_interval == 0 and batch > 0:
-                cur_loss = total_loss[0] / self.args.log_interval
+                cur_loss = total_loss.item() / self.args.log_interval
                 elapsed = time.time() - start_time
                 print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
                         'loss {:5.2f} | ppl {:8.2f}'.format(
@@ -148,7 +148,7 @@ class Trainer(object):
         for data in data_source:
             loss = self.model.loss(data)
             total_loss +=  loss.data
-        ave_loss = total_loss[0] / len(data_source)
+        ave_loss = total_loss.item() / len(data_source)
         print('| {0} loss {1:5.2f} | {0} ppl {2:8.2f}'.format(prefix, ave_loss, math.exp(ave_loss)))
         return ave_loss
 
@@ -163,7 +163,7 @@ if __name__ == '__main__':
             torch.cuda.manual_seed(args.seed)
 
     corpus_path = args.data + '/'
-    dictionary = Dictionary(corpus_path + 'vocab.c.txt')
+    dictionary = Dictionary(corpus_path + 'vocab.txt')
 
     eval_batch_size = 10
 
@@ -172,6 +172,7 @@ if __name__ == '__main__':
         args.batch_size,
         dictionary = dictionary,
         cuda = args.cuda,
+        training = True,
     )
     valid_iter = DataIter(
         corpus_path + 'valid.txt',

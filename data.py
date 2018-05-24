@@ -2,6 +2,7 @@ import os
 import torch
 from torch.autograd import Variable
 from collections import defaultdict
+from random import shuffle
 import pdb
 import numpy as np
 import codecs
@@ -63,7 +64,7 @@ class Dictionary(object):
         yield cls_chunk_size
 
 class DataIter(object):
-    def __init__(self, corpus_path, batch_size, dictionary, cuda=False):
+    def __init__(self, corpus_path, batch_size, dictionary, cuda=False, training=False):
         self.corpus_path = corpus_path
         self.batch_size = batch_size
         self.dictionary = dictionary
@@ -72,6 +73,7 @@ class DataIter(object):
         self.eos = dictionary[EOS]
         self.pad = dictionary[PAD]
         self.unk = dictionary[UNK]
+        self.training = training
 
         self.build_data()
 
@@ -95,8 +97,14 @@ class DataIter(object):
         def wrapper(d):
             return Variable(d.cuda()) if self.cuda else Variable(d)
 
+        indices = list(range(len(self.lines)))
+        if self.training:
+            shuffle(indices)
+
         for idx in range(len(self)):
-            lines = self.lines[idx * self.batch_size: (idx+1) * self.batch_size]
+            batch_indices = indices[idx * self.batch_size: (idx+1) * self.batch_size]
+            lines = list(map(self.lines.__getitem__, batch_indices))
+            #lines = self.lines[idx * self.batch_size: (idx+1) * self.batch_size]
             lines.sort(key=lambda x: len(x), reverse=True)
             length = list(map(len, lines))
             max_len = length[0]
