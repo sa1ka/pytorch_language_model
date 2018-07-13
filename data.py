@@ -10,8 +10,8 @@ import utils
 
 UNK = '<unk>'
 PAD = '<pad>'
-BOS = '<bos>'
-EOS = '<eos>'
+BOS = '<s>'
+EOS = '</s>'
 
 class Dictionary(object):
     def __init__(self, vocab_path):
@@ -24,8 +24,10 @@ class Dictionary(object):
         self.add_word(BOS)
         self.add_word(EOS)
         with codecs.open(vocab_path, 'r', 'utf8') as f:
-            for line in f:
-                self.add_word(*line.strip().split())
+            for line in f.read().splitlines():
+                if len(line) == 0:
+                    continue
+                self.add_word(*line.split())
         self.ncls = len(self.cls_set)
 
     def add_word(self, word, cls=0):

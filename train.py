@@ -163,7 +163,7 @@ if __name__ == '__main__':
             torch.cuda.manual_seed(args.seed)
 
     corpus_path = args.data + '/'
-    dictionary = Dictionary(corpus_path + 'vocab.txt')
+    dictionary = Dictionary(corpus_path + 'vocab.c.txt')
 
     eval_batch_size = 10
 
